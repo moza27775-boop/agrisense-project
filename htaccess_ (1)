@@ -1,0 +1,479 @@
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include <WebServer.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+
+// ===== إعدادات WiFi =====
+#define WIFI_SSID "OMANTEL 4G"
+#define WIFI_PASSWORD "hm92797154hm"
+
+// ===== إعدادات Firebase =====
+#define API_KEY "AIzaSyCJevzzTW9visI9pIyLv4rCGqEo2HpNYe8"
+#define DATABASE_URL "https://oman-b6278-default-rtdb.firebaseio.com/"
+
+// ===== إعدادات المستشعرات =====
+#define DHTPIN 4          // DHT11 على GPIO4
+#define DHTTYPE DHT11
+#define SOIL_PIN 34       // مستشعر رطوبة التربة (Analog)
+#define GAS_PIN 35        // مستشعر الغاز (Analog)
+#define LIGHT_PIN 32      // مستشعر الضوء (Analog)
+
+// ===== إعدادات المشغلات =====
+#define RELAY_TEMP_FAN 26   // مروحة الحرارة
+#define RELAY_GAS_FAN 27    // مروحة الغاز
+#define RELAY_PUMP 14       // مضخة الماء
+
+// ===== إعدادات LCD I2C =====
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ===== الحدود =====
+#define TEMP_LIMIT 35.0
+#define GAS_LIMIT 500
+#define SOIL_LIMIT 400
+
+// ===== كائنات Firebase و Web =====
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+WebServer server(80);
+
+// ===== كائن DHT =====
+DHT dht(DHTPIN, DHTTYPE);
+
+// ===== متغيرات =====
+float temp = 0, hum = 0;
+int soil = 0, gas = 0, light = 0;
+unsigned long lastUpdate = 0;
+unsigned long lastLCDUpdate = 0;
+bool firebaseReady = false;
+int lcdPage = 0;
+
+// ===== صفحة الويب Dashboard =====
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام التحكم الذكي</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Tahoma', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            font-size: 2em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s;
+        }
+        .card:hover { transform: translateY(-5px); }
+        .card h3 { color: #666; margin-bottom: 15px; font-size: 1.2em; }
+        .value { font-size: 2.5em; font-weight: bold; margin: 10px 0; }
+        .unit { color: #999; font-size: 0.9em; }
+        .temp { color: #ff6b6b; }
+        .hum { color: #4ecdc4; }
+        .soil { color: #95e77e; }
+        .gas { color: #ffd93d; }
+        .light { color: #ffb347; }
+        .status {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+        }
+        .online { color: #4caf50; font-weight: bold; }
+        .offline { color: #f44336; font-weight: bold; }
+        .relay-status {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .on { background-color: #4caf50; box-shadow: 0 0 5px #4caf50; }
+        .off { background-color: #f44336; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        button:hover { background: #5a67d8; }
+        .timestamp { margin-top: 10px; color: #666; font-size: 0.9em; }
+        .relays {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .relay-card {
+            background: white;
+            border-radius: 15px;
+            padding: 15px;
+            text-align: center;
+        }
+        @media (max-width: 768px) {
+            .value { font-size: 1.8em; }
+            h1 { font-size: 1.5em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 نظام التحكم الذكي</h1>
+        <div class="dashboard">
+            <div class="card">
+                <h3>🌡️ درجة الحرارة</h3>
+                <div class="value temp" id="temp">0.0</div>
+                <div class="unit">درجة مئوية</div>
+                <div id="tempStatus"></div>
+            </div>
+            <div class="card">
+                <h3>💧 الرطوبة</h3>
+                <div class="value hum" id="hum">0.0</div>
+                <div class="unit">%</div>
+            </div>
+            <div class="card">
+                <h3>🌱 رطوبة التربة</h3>
+                <div class="value soil" id="soil">0</div>
+                <div class="unit">%</div>
+            </div>
+            <div class="card">
+                <h3>💨 الغازات</h3>
+                <div class="value gas" id="gas">0</div>
+                <div class="unit">ppm</div>
+            </div>
+            <div class="card">
+                <h3>💡 الإضاءة</h3>
+                <div class="value light" id="light">0</div>
+                <div class="unit">lux</div>
+            </div>
+        </div>
+        
+        <div class="relays">
+            <div class="relay-card">
+                <h3>🌀 مروحة الحرارة</h3>
+                <div><span class="relay-status" id="fanTempStatus"></span> <span id="fanTempText">متوقفة</span></div>
+            </div>
+            <div class="relay-card">
+                <h3>🌀 مروحة الغاز</h3>
+                <div><span class="relay-status" id="fanGasStatus"></span> <span id="fanGasText">متوقفة</span></div>
+            </div>
+            <div class="relay-card">
+                <h3>💧 مضخة الماء</h3>
+                <div><span class="relay-status" id="pumpStatus"></span> <span id="pumpText">متوقفة</span></div>
+            </div>
+        </div>
+        
+        <div class="status">
+            <div>حالة النظام: <span id="status" class="online">● متصل</span></div>
+            <div class="firebase-status" id="firebaseStatus">☁️ Firebase: جاري الاتصال...</div>
+            <div class="timestamp" id="timestamp">آخر تحديث: --</div>
+            <button onclick="refreshData()">🔄 تحديث البيانات</button>
+            <button onclick="toggleRelay('fanTemp')">🔄 تشغيل/إيقاف مروحة الحرارة</button>
+        </div>
+    </div>
+    <script>
+        function refreshData() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('temp').textContent = data.temp.toFixed(1);
+                    document.getElementById('hum').textContent = data.hum.toFixed(1);
+                    document.getElementById('soil').textContent = data.soil;
+                    document.getElementById('gas').textContent = data.gas;
+                    document.getElementById('light').textContent = data.light;
+                    document.getElementById('timestamp').textContent = 'آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG');
+                    
+                    // تحديث حالة المراوح
+                    updateRelayStatus('fanTemp', data.fanTemp);
+                    updateRelayStatus('fanGas', data.fanGas);
+                    updateRelayStatus('pump', data.pump);
+                    
+                    if (data.firebase) {
+                        document.getElementById('firebaseStatus').innerHTML = '☁️ Firebase: ✓ متصل';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status').innerHTML = '● غير متصل';
+                });
+        }
+        
+        function updateRelayStatus(name, status) {
+            const statusSpan = document.getElementById(name + 'Status');
+            const textSpan = document.getElementById(name + 'Text');
+            if (status) {
+                statusSpan.className = 'relay-status on';
+                textSpan.innerText = 'تعمل';
+            } else {
+                statusSpan.className = 'relay-status off';
+                textSpan.innerText = 'متوقفة';
+            }
+        }
+        
+        function toggleRelay(relay) {
+            fetch('/toggle?relay=' + relay)
+                .then(() => refreshData());
+        }
+        
+        setInterval(refreshData, 3000);
+        refreshData();
+    </script>
+</body>
+</html>
+)rawliteral";
+
+// ===== قراءة المستشعرات =====
+void readSensors() {
+  // قراءة DHT11
+  float newTemp = dht.readTemperature();
+  float newHum = dht.readHumidity();
+  
+  if (!isnan(newTemp)) temp = newTemp;
+  if (!isnan(newHum)) hum = newHum;
+  
+  // قراءة المستشعرات التناظرية
+  soil = analogRead(SOIL_PIN);
+  gas = analogRead(GAS_PIN);
+  light = analogRead(LIGHT_PIN);
+  
+  // تحويل القيم
+  soil = map(soil, 0, 4095, 0, 100);
+  light = map(light, 0, 4095, 0, 100);
+}
+
+// ===== التحكم في المشغلات =====
+void controlRelays() {
+  // التحكم في مروحة الحرارة
+  if (temp > TEMP_LIMIT) {
+    digitalWrite(RELAY_TEMP_FAN, LOW);  // تشغيل
+  } else {
+    digitalWrite(RELAY_TEMP_FAN, HIGH); // إيقاف
+  }
+  
+  // التحكم في مروحة الغاز
+  if (gas > GAS_LIMIT) {
+    digitalWrite(RELAY_GAS_FAN, LOW);
+  } else {
+    digitalWrite(RELAY_GAS_FAN, HIGH);
+  }
+  
+  // التحكم في مضخة الماء (التربة: كلما زاد الرقم كلما كانت أقل رطوبة)
+  if (soil < SOIL_LIMIT) {
+    digitalWrite(RELAY_PUMP, LOW);  // تشغيل
+  } else {
+    digitalWrite(RELAY_PUMP, HIGH); // إيقاف
+  }
+}
+
+// ===== عرض على LCD =====
+void updateLCD() {
+  lcd.clear();
+  
+  switch(lcdPage) {
+    case 0:
+      lcd.setCursor(0, 0);
+      lcd.print("Temp:");
+      lcd.print(temp, 1);
+      lcd.print("C");
+      lcd.setCursor(0, 1);
+      lcd.print("Hum:");
+      lcd.print(hum, 0);
+      lcd.print("%");
+      break;
+    case 1:
+      lcd.setCursor(0, 0);
+      lcd.print("Soil:");
+      lcd.print(soil);
+      lcd.print("%");
+      lcd.setCursor(0, 1);
+      lcd.print("Gas:");
+      lcd.print(gas);
+      break;
+    case 2:
+      lcd.setCursor(0, 0);
+      lcd.print("Light:");
+      lcd.print(light);
+      lcd.print("%");
+      lcd.setCursor(0, 1);
+      lcd.print("IP:");
+      lcd.print(WiFi.localIP());
+      break;
+  }
+  
+  lcdPage = (lcdPage + 1) % 3;
+}
+
+// ===== رفع البيانات لـ Firebase =====
+void updateFirebase() {
+  if (!Firebase.ready()) {
+    firebaseReady = false;
+    return;
+  }
+  
+  firebaseReady = true;
+  
+  Firebase.RTDB.setFloat(&fbdo, "/sensor/temp", temp);
+  Firebase.RTDB.setFloat(&fbdo, "/sensor/hum", hum);
+  Firebase.RTDB.setInt(&fbdo, "/sensor/soil", soil);
+  Firebase.RTDB.setInt(&fbdo, "/sensor/gas", gas);
+  Firebase.RTDB.setInt(&fbdo, "/sensor/light", light);
+  Firebase.RTDB.setBool(&fbdo, "/relays/fanTemp", digitalRead(RELAY_TEMP_FAN) == LOW);
+  Firebase.RTDB.setBool(&fbdo, "/relays/fanGas", digitalRead(RELAY_GAS_FAN) == LOW);
+  Firebase.RTDB.setBool(&fbdo, "/relays/pump", digitalRead(RELAY_PUMP) == LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // ===== إعداد المشغلات =====
+  pinMode(RELAY_TEMP_FAN, OUTPUT);
+  pinMode(RELAY_GAS_FAN, OUTPUT);
+  pinMode(RELAY_PUMP, OUTPUT);
+  
+  digitalWrite(RELAY_TEMP_FAN, HIGH);
+  digitalWrite(RELAY_GAS_FAN, HIGH);
+  digitalWrite(RELAY_PUMP, HIGH);
+  
+  // ===== إعداد LCD =====
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Starting...");
+  
+  // ===== إعداد DHT =====
+  dht.begin();
+  
+  // ===== اتصال WiFi =====
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  lcd.setCursor(0, 1);
+  lcd.print("WiFi...");
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
+    delay(500);
+    attempts++;
+  }
+  
+  lcd.clear();
+  if (WiFi.status() == WL_CONNECTED) {
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi OK");
+    lcd.setCursor(0, 1);
+    lcd.print(WiFi.localIP());
+    delay(2000);
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Failed");
+    delay(2000);
+  }
+  
+  // ===== إعداد Firebase =====
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  config.signer.test_mode = true;
+  
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+  
+  // ===== إعداد Web Server =====
+  server.on("/", HTTP_GET, []() {
+    server.send(200, "text/html", index_html);
+  });
+  
+  server.on("/data", HTTP_GET, []() {
+    StaticJsonDocument<300> doc;
+    doc["temp"] = temp;
+    doc["hum"] = hum;
+    doc["soil"] = soil;
+    doc["gas"] = gas;
+    doc["light"] = light;
+    doc["firebase"] = firebaseReady;
+    doc["fanTemp"] = digitalRead(RELAY_TEMP_FAN) == LOW;
+    doc["fanGas"] = digitalRead(RELAY_GAS_FAN) == LOW;
+    doc["pump"] = digitalRead(RELAY_PUMP) == LOW;
+    
+    String response;
+    serializeJson(doc, response);
+    server.send(200, "application/json", response);
+  });
+  
+  server.on("/toggle", HTTP_GET, []() {
+    String relay = server.arg("relay");
+    if (relay == "fanTemp") {
+      digitalWrite(RELAY_TEMP_FAN, !digitalRead(RELAY_TEMP_FAN));
+    }
+    server.send(200, "text/plain", "OK");
+  });
+  
+  server.begin();
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("System Ready");
+  delay(2000);
+  
+  Serial.println("\n========================================");
+  Serial.println("ESP32 Smart Control System");
+  Serial.print("IP: "); Serial.println(WiFi.localIP());
+  Serial.println("========================================");
+}
+
+void loop() {
+  server.handleClient();
+  
+  // قراءة المستشعرات كل ثانية
+  static unsigned long lastSensorRead = 0;
+  if (millis() - lastSensorRead > 1000) {
+    lastSensorRead = millis();
+    readSensors();
+    controlRelays();
+  }
+  
+  // تحديث LCD كل 3 ثواني
+  if (millis() - lastLCDUpdate > 3000) {
+    lastLCDUpdate = millis();
+    updateLCD();
+  }
+  
+  // رفع لـ Firebase كل 5 ثواني
+  if (millis() - lastUpdate > 5000) {
+    lastUpdate = millis();
+    updateFirebase();
+    
+    // طباعة في Serial
+    Serial.print("T:"); Serial.print(temp);
+    Serial.print(" H:"); Serial.print(hum);
+    Serial.print(" S:"); Serial.print(soil);
+    Serial.print(" G:"); Serial.print(gas);
+    Serial.print(" L:"); Serial.println(light);
+  }
+  
+  delay(10);
+}
