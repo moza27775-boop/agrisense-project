@@ -1,0 +1,33 @@
+[debug] [2026-03-20T10:54:03.561Z] ----------------------------------------------------------------------
+[debug] [2026-03-20T10:54:03.566Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\rawan\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js projects:create smart-farm-2026 --json
+[debug] [2026-03-20T10:54:03.567Z] CLI Version:   15.11.0
+[debug] [2026-03-20T10:54:03.567Z] Platform:      win32
+[debug] [2026-03-20T10:54:03.567Z] Node Version:  v24.14.0
+[debug] [2026-03-20T10:54:03.568Z] Time:          Fri Mar 20 2026 14:54:03 GMT+0400 (Gulf Standard Time)
+[debug] [2026-03-20T10:54:03.568Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-03-20T10:54:03.585Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-03-20T10:54:03.586Z] > authorizing via signed-in user (moza27775@gmail.com)
+[debug] [2026-03-20T10:54:03.593Z] Checked if tokens are valid: true, expires at: 1774005683142
+[debug] [2026-03-20T10:54:03.593Z] Checked if tokens are valid: true, expires at: 1774005683142
+[debug] [2026-03-20T10:54:03.596Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects [none]
+[debug] [2026-03-20T10:54:03.596Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects {"projectId":"smart-farm-2026","name":"smart-farm-2026"}
+[debug] [2026-03-20T10:54:05.679Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects 200
+[debug] [2026-03-20T10:54:05.680Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects {"name":"operations/create_project.global.7187480929425867399"}
+[debug] [2026-03-20T10:54:05.684Z] Checked if tokens are valid: true, expires at: 1774005683142
+[debug] [2026-03-20T10:54:05.684Z] Checked if tokens are valid: true, expires at: 1774005683142
+[debug] [2026-03-20T10:54:05.685Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/operations/create_project.global.7187480929425867399 [none]
+[debug] [2026-03-20T10:54:07.087Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/operations/create_project.global.7187480929425867399 200
+[debug] [2026-03-20T10:54:07.088Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/operations/create_project.global.7187480929425867399 {"name":"operations/create_project.global.7187480929425867399","metadata":{"@type":"type.googleapis.com/google.cloudresourcemanager.v1.ProjectCreationStatus","gettable":true,"ready":true},"done":true,"response":{"@type":"type.googleapis.com/google.cloudresourcemanager.v1.Project","projectNumber":"36339723393","projectId":"smart-farm-2026","lifecycleState":"ACTIVE","name":"smart-farm-2026","createTime":"2026-03-20T10:54:06.456219Z"}}
+[debug] [2026-03-20T10:54:07.092Z] Checked if tokens are valid: true, expires at: 1774005683142
+[debug] [2026-03-20T10:54:07.093Z] Checked if tokens are valid: true, expires at: 1774005683142
+[debug] [2026-03-20T10:54:07.093Z] >>> [apiv2][query] POST https://firebase.googleapis.com/v1beta1/projects/smart-farm-2026:addFirebase [none]
+[debug] [2026-03-20T10:54:08.660Z] <<< [apiv2][status] POST https://firebase.googleapis.com/v1beta1/projects/smart-farm-2026:addFirebase 403
+[debug] [2026-03-20T10:54:08.661Z] <<< [apiv2][body] POST https://firebase.googleapis.com/v1beta1/projects/smart-farm-2026:addFirebase {"error":{"code":403,"message":"The caller does not have permission","status":"PERMISSION_DENIED"}}
+[debug] [2026-03-20T10:54:08.665Z] Request to https://firebase.googleapis.com/v1beta1/projects/smart-farm-2026:addFirebase had HTTP Error: 403, The caller does not have permission
+[debug] [2026-03-20T10:54:08.671Z] FirebaseError: Request to https://firebase.googleapis.com/v1beta1/projects/smart-farm-2026:addFirebase had HTTP Error: 403, The caller does not have permission
+    at responseToError (C:\Users\rawan\AppData\Roaming\npm\node_modules\firebase-tools\lib\responseToError.js:53:12)
+    at RetryOperation._fn (C:\Users\rawan\AppData\Roaming\npm\node_modules\firebase-tools\lib\apiv2.js:333:77)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[error] 
+[error] Error: Failed to add Firebase to Google Cloud Platform project. See firebase-debug.log for more info.
